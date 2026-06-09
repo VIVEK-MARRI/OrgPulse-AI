@@ -5,6 +5,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { buildPrompt } from './prompt.js';
 import { buildExecutivePrompt } from './executiveBriefPrompt.js';
 import { buildCypherPrompt, buildIngestStatements } from './cypherPrompt.js';
+import { buildInsightPrompt } from './insightPrompt.js';
 import neo4j from 'neo4j-driver';
 
 /** Shared Gemini call helper — resolves API key, calls model, parses JSON */
@@ -331,6 +332,61 @@ app.post('/api/neo4j/ingest', async (req, res) => {
   }
 });
 
+// ─── Executive Insight Endpoint ────────────────────────────────────────────────────
+app.post('/api/insight', async (req, res) => {
+  const { question, cypher, results, apiKeyOverride } = req.body;
+
+  if (!question || !cypher) {
+    return res.status(400).json({
+      error: 'MISSING_FIELDS',
+      message: '"question" and "cypher" are required.',
+    });
+  }
+
+  const apiKey = (apiKeyOverride && apiKeyOverride.trim()) || process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    return res.status(401).json({
+      error: 'MISSING_API_KEY',
+      message: 'No Gemini API key found.',
+    });
+  }
+
+  const { system, user } = buildInsightPrompt(
+    question,
+    cypher,
+    Array.isArray(results) ? results : []
+  );
+
+  try {
+    const parsed = await callGemini(apiKey, system, user);
+
+    // Validate shape
+    const required = ['answer', 'evidence', 'recommended_action', 'confidence'];
+    const missing = required.filter(k => !(k in parsed));
+    if (missing.length > 0) {
+      return res.status(502).json({
+        error: 'INCOMPLETE_RESPONSE',
+        message: `Gemini response is missing: ${missing.join(', ')}`,
+        partial: parsed,
+      });
+    }
+
+    // Normalize
+    const validConfidence = ['HIGH', 'MEDIUM', 'LOW'];
+    if (!validConfidence.includes(parsed.confidence)) {
+      parsed.confidence = 'MEDIUM';
+    }
+    if (!Array.isArray(parsed.evidence)) {
+      parsed.evidence = [];
+    }
+
+    res.json({ success: true, data: parsed });
+  } catch (err) {
+    console.error('[OrgPulse/insight] Error:', err.message);
+    return handleGeminiError(err, res);
+  }
+});
+
 // ─── Shared Error Handler ────────────────────────────────────────────────────
 function handleGeminiError(err, res) {
   if (err.message?.includes('API_KEY_INVALID') || err.status === 400) {
@@ -348,12 +404,13 @@ function handleGeminiError(err, res) {
 // ─── Start Server ─────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`\n🧠 OrgPulse AI server running on http://localhost:${PORT}`);
-  console.log(`   Health:   http://localhost:${PORT}/api/health`);
-  console.log(`   Analyze:  POST http://localhost:${PORT}/api/analyze`);
-  console.log(`   Brief:    POST http://localhost:${PORT}/api/brief`);
-  console.log(`   Cypher:   POST http://localhost:${PORT}/api/cypher`);
-  console.log(`   Neo4j run:    POST http://localhost:${PORT}/api/neo4j/run`);
-  console.log(`   Neo4j ingest: POST http://localhost:${PORT}/api/neo4j/ingest`);
-  console.log(`   Gemini key: ${process.env.GEMINI_API_KEY ? '✓ configured' : '✗ not set (use UI override)'}`);
-  console.log(`   Neo4j:      ${process.env.NEO4J_URL || 'bolt://localhost:7687 (default)'}\n`);
+  console.log(`   Health:         http://localhost:${PORT}/api/health`);
+  console.log(`   Analyze:        POST /api/analyze`);
+  console.log(`   Brief:          POST /api/brief`);
+  console.log(`   Cypher:         POST /api/cypher`);
+  console.log(`   Insight:        POST /api/insight`);
+  console.log(`   Neo4j run:      POST /api/neo4j/run`);
+  console.log(`   Neo4j ingest:   POST /api/neo4j/ingest`);
+  console.log(`   Gemini key:     ${process.env.GEMINI_API_KEY ? '✓ configured' : '✗ not set (use UI override)'}`);
+  console.log(`   Neo4j:          ${process.env.NEO4J_URL || 'bolt://localhost:7687 (default)'}\n`);
 });

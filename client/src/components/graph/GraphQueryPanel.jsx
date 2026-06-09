@@ -1,25 +1,30 @@
 import { useState, useCallback, useRef } from 'react';
 import './graph.css';
 import { highlightCypher, SAMPLE_QUESTIONS } from './cypherHighlight.js';
+import ExecutiveInsightCard from './ExecutiveInsightCard.jsx';
 
 const API_BASE = '';
 
 export default function GraphQueryPanel({ extraction, apiKeyOverride }) {
   // ── Query generation state ──────────────────────────────────────────────────
-  const [question, setQuestion]     = useState('');
-  const [cypher, setCypher]         = useState('');
+  const [question, setQuestion]         = useState('');
+  const [cypher, setCypher]             = useState('');
   const [queryLoading, setQueryLoading] = useState(false);
-  const [queryError, setQueryError] = useState(null);
-  const [copiedQuery, setCopiedQuery] = useState(false);
+  const [queryError, setQueryError]     = useState(null);
+  const [copiedQuery, setCopiedQuery]   = useState(false);
+
+  // ── Executive insight state ─────────────────────────────────────────────────
+  const [insight, setInsight]           = useState(null);
+  const [insightLoading, setInsightLoading] = useState(false);
 
   // ── Neo4j execution state ───────────────────────────────────────────────────
-  const [boltUrl, setBoltUrl]       = useState('bolt://localhost:7687');
-  const [neo4jUser, setNeo4jUser]   = useState('neo4j');
-  const [neo4jPass, setNeo4jPass]   = useState('');
+  const [boltUrl, setBoltUrl]     = useState('bolt://localhost:7687');
+  const [neo4jUser, setNeo4jUser] = useState('neo4j');
+  const [neo4jPass, setNeo4jPass] = useState('');
   const [showNeo4jConfig, setShowNeo4jConfig] = useState(false);
-  const [runLoading, setRunLoading] = useState(false);
-  const [runError, setRunError]     = useState(null);
-  const [queryResults, setQueryResults] = useState(null); // { columns, rows }
+  const [runLoading, setRunLoading]   = useState(false);
+  const [runError, setRunError]       = useState(null);
+  const [queryResults, setQueryResults] = useState(null);
 
   // ── Ingest state ────────────────────────────────────────────────────────────
   const [ingestLoading, setIngestLoading] = useState(false);
@@ -27,6 +32,32 @@ export default function GraphQueryPanel({ extraction, apiKeyOverride }) {
   const [ingestError, setIngestError]     = useState(null);
 
   const inputRef = useRef(null);
+
+  // ── Fetch executive insight ─────────────────────────────────────────────────
+  const fetchInsight = useCallback(async (q, cql, rows) => {
+    setInsightLoading(true);
+    setInsight(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/insight`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: q,
+          cypher: cql,
+          results: rows || [],
+          apiKeyOverride,
+        }),
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        setInsight(json.data);
+      }
+    } catch (_) {
+      // Insight is best-effort — silent fail
+    } finally {
+      setInsightLoading(false);
+    }
+  }, [apiKeyOverride]);
 
   // ── Generate Cypher from question ───────────────────────────────────────────
   const generateCypher = useCallback(async (q) => {
@@ -36,6 +67,7 @@ export default function GraphQueryPanel({ extraction, apiKeyOverride }) {
     setQueryError(null);
     setCypher('');
     setQueryResults(null);
+    setInsight(null);
 
     try {
       const res = await fetch(`${API_BASE}/api/cypher`, {
@@ -45,13 +77,20 @@ export default function GraphQueryPanel({ extraction, apiKeyOverride }) {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || `Error ${res.status}`);
-      setCypher(json.query || '');
+
+      const generatedQuery = json.query || '';
+      setCypher(generatedQuery);
+
+      // Auto-generate insight using extraction data as surrogate results
+      // (so insight works even without a live Neo4j connection)
+      const surrogateResults = extractionToSurrogateResults(q2, extraction);
+      fetchInsight(q2, generatedQuery, surrogateResults);
     } catch (err) {
       setQueryError(err.message);
     } finally {
       setQueryLoading(false);
     }
-  }, [question, apiKeyOverride]);
+  }, [question, apiKeyOverride, extraction, fetchInsight]);
 
   // ── Run Cypher on Neo4j ─────────────────────────────────────────────────────
   const runQuery = useCallback(async () => {
@@ -59,6 +98,7 @@ export default function GraphQueryPanel({ extraction, apiKeyOverride }) {
     setRunLoading(true);
     setRunError(null);
     setQueryResults(null);
+    setInsight(null);
 
     try {
       const res = await fetch(`${API_BASE}/api/neo4j/run`, {
@@ -68,21 +108,25 @@ export default function GraphQueryPanel({ extraction, apiKeyOverride }) {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || `Neo4j error ${res.status}`);
-      setQueryResults({ columns: json.columns, rows: json.rows });
+
+      const results = { columns: json.columns, rows: json.rows };
+      setQueryResults(results);
+
+      // Generate insight from real Neo4j rows
+      fetchInsight(question, cypher, json.rows);
     } catch (err) {
       setRunError(err.message);
     } finally {
       setRunLoading(false);
     }
-  }, [cypher, boltUrl, neo4jUser, neo4jPass]);
+  }, [cypher, boltUrl, neo4jUser, neo4jPass, question, fetchInsight]);
 
-  // ── Push extraction to Neo4j knowledge graph ────────────────────────────────
+  // ── Push extraction to Neo4j ────────────────────────────────────────────────
   const pushToGraph = useCallback(async () => {
     if (!extraction) return;
     setIngestLoading(true);
     setIngestError(null);
     setIngestResult(null);
-
     const meetingId = `meeting_${Date.now()}`;
     try {
       const res = await fetch(`${API_BASE}/api/neo4j/ingest`, {
@@ -109,9 +153,7 @@ export default function GraphQueryPanel({ extraction, apiKeyOverride }) {
   // ── Copy query ──────────────────────────────────────────────────────────────
   const copyQuery = useCallback(async () => {
     if (!cypher) return;
-    try {
-      await navigator.clipboard.writeText(cypher);
-    } catch {
+    try { await navigator.clipboard.writeText(cypher); } catch {
       const el = document.createElement('textarea');
       el.value = cypher;
       document.body.appendChild(el);
@@ -136,16 +178,16 @@ export default function GraphQueryPanel({ extraction, apiKeyOverride }) {
     inputRef.current?.focus();
   };
 
+  const wordCount = question.trim().split(/\s+/).filter(Boolean).length;
+
   return (
     <div className="graph-panel">
       {/* ── Neo4j Connection Config ── */}
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.6rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-              🔗 Knowledge Graph Query
-            </span>
-          </div>
+          <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+            🔗 Knowledge Graph Query
+          </span>
           <button
             id="btn-neo4j-config"
             type="button"
@@ -181,7 +223,7 @@ export default function GraphQueryPanel({ extraction, apiKeyOverride }) {
         )}
       </div>
 
-      {/* ── Push to Graph Banner (shown when extraction available) ── */}
+      {/* ── Push to Graph Banner ── */}
       {extraction && (
         <div className="push-banner">
           <span className="push-banner-icon">🧩</span>
@@ -205,15 +247,10 @@ export default function GraphQueryPanel({ extraction, apiKeyOverride }) {
           </button>
         </div>
       )}
-
-      {/* Ingest result */}
       {ingestResult && (
         <div className={`ingest-result ${ingestResult.errors > 0 ? 'has-errors' : ''}`}>
           {ingestResult.errors === 0 ? '✓' : '⚠'}
-          <span>
-            Ingested <strong>{ingestResult.statementsRun}</strong> statements
-            {ingestResult.errors > 0 ? ` (${ingestResult.errors} errors)` : ' successfully.'}
-          </span>
+          <span>Ingested <strong>{ingestResult.statementsRun}</strong> statements{ingestResult.errors > 0 ? ` (${ingestResult.errors} errors)` : ' successfully.'}</span>
         </div>
       )}
       {ingestError && (
@@ -225,15 +262,18 @@ export default function GraphQueryPanel({ extraction, apiKeyOverride }) {
 
       {/* ── Natural Language Question Input ── */}
       <div>
-        <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
-          Ask a question about your organizational data
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+          <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)' }}>
+            Ask a question about your organizational data
+          </div>
+          <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Ctrl+Enter to generate</span>
         </div>
         <div className="graph-question-area">
           <textarea
             id="graph-question-input"
             ref={inputRef}
             className="graph-question-input"
-            placeholder='e.g. "Who owns the most pending tasks?" — Ctrl+Enter to generate'
+            placeholder='e.g. "Who owns the most pending tasks?" or "Which projects are at risk?"'
             value={question}
             onChange={e => setQuestion(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -253,7 +293,6 @@ export default function GraphQueryPanel({ extraction, apiKeyOverride }) {
               : '⚡ Generate'}
           </button>
         </div>
-
         {queryError && (
           <div className="error-banner" style={{ marginTop: '0.5rem' }} role="alert">
             <span className="error-banner-icon">⚠</span>
@@ -269,17 +308,17 @@ export default function GraphQueryPanel({ extraction, apiKeyOverride }) {
         </div>
         <div className="sample-chips">
           {SAMPLE_QUESTIONS.map((q, i) => (
-            <button
-              key={i}
-              type="button"
-              className="sample-chip"
-              onClick={() => useSampleQuestion(q)}
-            >
+            <button key={i} type="button" className="sample-chip" onClick={() => useSampleQuestion(q)}>
               {q}
             </button>
           ))}
         </div>
       </div>
+
+      {/* ── Executive Insight Card (auto-shown after generation) ── */}
+      {(insightLoading || insight) && (
+        <ExecutiveInsightCard insight={insight} isLoading={insightLoading} />
+      )}
 
       {/* ── Generated Cypher Block ── */}
       {cypher && (
@@ -316,7 +355,6 @@ export default function GraphQueryPanel({ extraction, apiKeyOverride }) {
               aria-label="Generated Cypher query"
             />
           </div>
-
           {runError && (
             <div className="error-banner" style={{ marginTop: '0.5rem' }}>
               <span className="error-banner-icon">⚠</span>
@@ -341,11 +379,7 @@ export default function GraphQueryPanel({ extraction, apiKeyOverride }) {
             <div className="results-table-wrap">
               <table className="results-table">
                 <thead>
-                  <tr>
-                    {queryResults.columns.map(col => (
-                      <th key={col}>{col}</th>
-                    ))}
-                  </tr>
+                  <tr>{queryResults.columns.map(col => <th key={col}>{col}</th>)}</tr>
                 </thead>
                 <tbody>
                   {queryResults.rows.map((row, i) => (
@@ -368,16 +402,97 @@ export default function GraphQueryPanel({ extraction, apiKeyOverride }) {
         </div>
       )}
 
-      {/* ── Empty / intro state ── */}
+      {/* ── Empty intro state ── */}
       {!cypher && !queryLoading && (
         <div className="empty-state" style={{ paddingTop: '0.5rem' }}>
           <span className="empty-state-icon" style={{ fontSize: '2rem' }}>🔍</span>
           <span>
-            Ask a question above to generate a Cypher query. <br />
+            Ask a question above to generate a Cypher query and get an executive insight.<br />
             Connect Neo4j to run it live against your knowledge graph.
           </span>
         </div>
       )}
     </div>
   );
+}
+
+// ── Surrogate result builder ──────────────────────────────────────────────────
+// When Neo4j is not connected, derive relevant data from the extraction JSON
+// so the insight endpoint still has something meaningful to interpret.
+
+function extractionToSurrogateResults(question, extraction) {
+  if (!extraction) return [];
+
+  const q = question.toLowerCase();
+
+  if (q.includes('task') || q.includes('action') || q.includes('owner') || q.includes('pending') || q.includes('assigned')) {
+    return (extraction.tasks || []).map(t => ({
+      task_id: t.id,
+      title: t.title,
+      owner: t.owner || null,
+      priority: t.priority,
+      deadline: t.deadline || null,
+      status: t.status,
+    }));
+  }
+
+  if (q.includes('escalation') || q.includes('escalated') || q.includes('blocker')) {
+    return (extraction.escalations || []).map(e => ({
+      escalation_id: e.id,
+      description: e.description,
+      severity: e.severity,
+      is_blocker: e.is_blocker,
+      raised_by: e.raised_by || null,
+      escalated_to: e.escalated_to || null,
+    }));
+  }
+
+  if (q.includes('risk') || q.includes('project') || q.includes('at risk')) {
+    return (extraction.risks || []).map(r => ({
+      risk_id: r.id,
+      description: r.description,
+      severity: r.severity,
+      probability: r.probability,
+      impact_area: r.impact_area || null,
+      trigger: r.trigger || null,
+    }));
+  }
+
+  if (q.includes('decision') || q.includes('committed') || q.includes('deferred')) {
+    return (extraction.decisions || []).map(d => ({
+      decision_id: d.id,
+      description: d.description,
+      type: d.type,
+      made_by: d.made_by || null,
+    }));
+  }
+
+  if (q.includes('stakeholder') || q.includes('participant') || q.includes('who')) {
+    return (extraction.stakeholders || []).map(s => ({
+      name: s.name,
+      team: s.team || null,
+      role: s.role_in_meeting || null,
+    }));
+  }
+
+  if (q.includes('depend') || q.includes('blocks') || q.includes('waiting')) {
+    return (extraction.dependencies || []).map(d => ({
+      dep_id: d.id,
+      description: d.description,
+      type: d.type,
+      from: d.from_entity,
+      to: d.to_entity,
+    }));
+  }
+
+  // Fallback: return a summary of all counts
+  return [{
+    meeting: extraction.meeting?.title || 'Unknown',
+    tasks: extraction.tasks?.length || 0,
+    risks: extraction.risks?.length || 0,
+    escalations: extraction.escalations?.length || 0,
+    decisions: extraction.decisions?.length || 0,
+    stakeholders: extraction.stakeholders?.length || 0,
+    dependencies: extraction.dependencies?.length || 0,
+  }];
 }
