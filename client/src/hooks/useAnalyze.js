@@ -1,4 +1,5 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
+
 
 // Vite's dev server proxies /api/* to http://localhost:3001 — no base needed
 const API_BASE = '';
@@ -18,9 +19,23 @@ export function useAnalyze() {
   const [recurring,  setRecurring]  = useState(null);
   const [error,      setError]      = useState(null);
 
+  const runningRef = useRef(false);
+  const abortRef = useRef(null);
+
   const analyze = useCallback(async ({
     transcript, meetingTitle, referenceDate, apiKeyOverride,
   }) => {
+    // Prevent duplicate concurrent pipeline runs
+    if (runningRef.current) return;
+
+    runningRef.current = true;
+    setError(null);
+
+    // Abort any in-flight pipeline
+    if (abortRef.current) abortRef.current.abort();
+    const abortController = new AbortController();
+    abortRef.current = abortController;
+
     setStatus('analyzing');
     setExtraction(null);
     setBrief(null);
@@ -33,8 +48,10 @@ export function useAnalyze() {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ transcript, meetingTitle, referenceDate, apiKeyOverride }),
+        signal:  abortController.signal,
       });
       const analyzeJson = await analyzeRes.json();
+
 
       if (!analyzeRes.ok)
         throw new Error(analyzeJson.message || `Server error ${analyzeRes.status}`);
@@ -52,7 +69,9 @@ export function useAnalyze() {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify({ extractionData, apiKeyOverride }),
+          signal:  abortController.signal,
         });
+
         const briefJson = await briefRes.json();
         if (briefRes.ok && briefJson.success && briefJson.data) {
           setBrief(briefJson.data);
@@ -69,7 +88,9 @@ export function useAnalyze() {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify({ extractionData, apiKeyOverride }),
+          signal:  abortController.signal,
         });
+
         const recurJson = await recurRes.json();
         if (recurRes.ok && recurJson.success) {
           setRecurring(recurJson.recurringIssues || []);
@@ -81,22 +102,34 @@ export function useAnalyze() {
 
       setStatus('success');
     } catch (err) {
+      if (err?.name === 'AbortError') {
+        // User triggered a new analysis or component unmounted.
+        setStatus('idle');
+        return;
+      }
       if (err instanceof TypeError && err.message.includes('fetch')) {
         setError('Cannot connect to the OrgPulse server. Make sure it is running on port 3001.');
       } else {
         setError(err.message || 'An unexpected error occurred.');
       }
       setStatus('error');
+    } finally {
+      runningRef.current = false;
     }
   }, []);
 
+
   const reset = useCallback(() => {
+    if (abortRef.current) abortRef.current.abort();
+    abortRef.current = null;
+    runningRef.current = false;
     setStatus('idle');
     setExtraction(null);
     setBrief(null);
     setRecurring(null);
     setError(null);
   }, []);
+
 
   return { analyze, extraction, brief, recurring, status, error, reset };
 }

@@ -16,7 +16,7 @@ export function severityClass(level) {
 }
 
 /**
- * Returns an emoji dot color class for decisions.
+ * Returns a dot color style for decisions.
  */
 export function decisionDotStyle(type) {
   switch (type) {

@@ -1,222 +1,238 @@
-/* ── Cypher syntax highlight colors (injected into index.css scope) ── */
-
-/* These classes are emitted by cypherHighlight.js and used inside .cypher-block */
-.cy-keyword { color: #c084fc; font-weight: 600; } /* violet */
-.cy-label   { color: #67e8f9; }                   /* cyan   */
-.cy-colon   { color: #94a3b8; }
-.cy-rel     { color: #f9a8d4; }                   /* pink   */
-.cy-string  { color: #86efac; }                   /* green  */
-.cy-number  { color: #fbbf24; }                   /* amber  */
-.cy-var     { color: #a5b4fc; }                   /* indigo */
-.cy-prop    { color: #e2e8f0; }                   /* near-white */
-
-/* ── Graph Query Panel ─────────────────────────────────────── */
+.cy-keyword { color: #93c5fd; font-weight: 700; }
+.cy-label { color: #86efac; }
+.cy-colon { color: var(--text-muted); }
+.cy-rel { color: #fca5a5; }
+.cy-string { color: #fcd34d; }
+.cy-number { color: #fdba74; }
+.cy-var { color: #bdd2ff; }
+.cy-prop { color: var(--text-primary); }
 
 .graph-panel {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 18px;
+}
+
+.graph-toolbar,
+.graph-input-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.graph-toolbar {
+  margin-bottom: 10px;
 }
 
 .graph-question-area {
-  display: flex;
-  gap: 0.6rem;
-  align-items: flex-end;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: stretch;
 }
 
 .graph-question-input {
-  flex: 1;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  font-family: var(--font-sans);
-  font-size: 0.9rem;
-  padding: 0.7rem 1rem;
-  outline: none;
-  transition: border-color 150ms ease, box-shadow 150ms ease;
-  resize: none;
-  min-height: 52px;
-  max-height: 120px;
+  min-height: 54px;
+  max-height: 140px;
+  resize: vertical;
 }
 
-.graph-question-input:focus {
-  border-color: var(--accent-violet);
-  box-shadow: 0 0 0 3px rgba(124,58,237,0.2);
+.graph-question-area .btn {
+  min-height: 54px;
 }
 
 .sample-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
+  gap: 8px;
 }
 
 .sample-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 4px 10px;
-  border-radius: var(--radius-full);
-  font-size: 0.72rem;
-  font-weight: 500;
-  background: rgba(124,58,237,0.08);
+  min-height: 28px;
+  padding: 0 10px;
   border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.018);
   color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 150ms ease;
-  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .sample-chip:hover {
-  background: rgba(124,58,237,0.18);
-  border-color: var(--border-glow);
+  border-color: var(--border-strong);
+  background: var(--bg-card-hover);
   color: var(--text-primary);
 }
 
-/* Cypher block */
+.examples-label {
+  margin-bottom: 8px;
+}
+
+.cypher-block,
+.results-table-wrap,
+.insight-card,
+.push-banner,
+.neo4j-config,
+.loading-panel,
+.ingest-result {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+}
+
 .cypher-block {
-  position: relative;
-  background: #080814;
-  border: 1px solid var(--border-glow);
-  border-radius: var(--radius-md);
   overflow: hidden;
 }
 
-.cypher-block-toolbar {
+.cypher-block-toolbar,
+.insight-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.5rem 0.9rem;
-  background: rgba(124,58,237,0.08);
+  gap: 12px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
 }
 
 .cypher-label {
-  font-size: 0.65rem;
+  color: var(--text-muted);
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--text-accent);
 }
 
 .cypher-content {
-  padding: 1rem 1.1rem;
-  font-family: var(--font-mono);
-  font-size: 0.84rem;
-  line-height: 1.8;
   overflow-x: auto;
-  white-space: pre;
+  padding: 14px;
   color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.75;
+  white-space: pre;
 }
 
-/* Results table */
 .results-table-wrap {
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
+  max-height: 340px;
   overflow: auto;
-  max-height: 320px;
-  background: var(--bg-surface);
-}
-
-.results-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.82rem;
 }
 
 .results-table th {
-  padding: 0.5rem 0.75rem;
-  text-align: left;
-  font-size: 0.68rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-  background: var(--bg-elevated);
-  border-bottom: 1px solid var(--border-subtle);
-  white-space: nowrap;
   position: sticky;
   top: 0;
   z-index: 1;
+  background: var(--bg-panel);
 }
 
 .results-table td {
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
-  color: var(--text-secondary);
-  vertical-align: top;
   max-width: 280px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.results-table tr:last-child td { border-bottom: none; }
-.results-table tr:hover td { background: rgba(255,255,255,0.02); }
-
-/* Neo4j connection badge */
-.neo4j-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.72rem;
-  font-weight: 600;
-}
-
-.neo4j-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-}
-
-.neo4j-connected .neo4j-dot { background: var(--color-low); }
-.neo4j-disconnected .neo4j-dot { background: var(--text-muted); }
-
-/* Neo4j settings panel */
 .neo4j-config {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  padding: 1rem;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.75rem;
+  gap: 12px;
+  padding: 14px;
 }
 
-@media (max-width: 600px) {
-  .neo4j-config { grid-template-columns: 1fr; }
+.neo4j-config-full {
+  grid-column: 1 / -1;
 }
 
-.neo4j-config-full { grid-column: 1 / -1; }
-
-/* Push to graph banner */
 .push-banner {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  background: rgba(124,58,237,0.08);
-  border: 1px solid var(--border-glow);
-  border-radius: var(--radius-md);
-  font-size: 0.82rem;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px;
 }
-
-.push-banner-icon { font-size: 1.2rem; flex-shrink: 0; }
 
 .ingest-result {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  font-size: 0.8rem;
-  padding: 0.5rem 0.75rem;
-  border-radius: var(--radius-md);
-  background: rgba(34,197,94,0.08);
-  border: 1px solid rgba(34,197,94,0.2);
-  color: var(--color-low);
+  gap: 8px;
+  padding: 10px 12px;
+  color: #86efac;
+  font-size: 13px;
 }
 
 .ingest-result.has-errors {
-  background: rgba(234,179,8,0.08);
-  border-color: rgba(234,179,8,0.2);
-  color: var(--color-medium);
+  color: #fcd34d;
+}
+
+.graph-error {
+  margin-top: 10px;
+}
+
+.insight-card.loading,
+.loading-panel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.insight-card {
+  overflow: hidden;
+}
+
+.insight-card-body {
+  padding: 14px;
+}
+
+.insight-card-body p {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.65;
+}
+
+.insight-section,
+.insight-action {
+  margin-top: 14px;
+}
+
+.insight-section ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.insight-action {
+  padding: 12px;
+  border: 1px solid rgba(34, 197, 94, 0.24);
+  border-radius: var(--radius-md);
+  background: var(--success-soft);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+@media (max-width: 700px) {
+  .graph-toolbar,
+  .graph-input-label-row,
+  .push-banner {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .graph-question-area,
+  .neo4j-config {
+    grid-template-columns: 1fr;
+  }
+
+  .graph-question-area .btn {
+    min-height: 38px;
+  }
 }

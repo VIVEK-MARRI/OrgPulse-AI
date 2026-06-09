@@ -5,7 +5,7 @@ export default function TasksSection({ tasks }) {
     <div className="dashboard-section fade-up">
       <div className="section-card">
         <div className="section-header">
-          <div className="section-icon" style={{ background: 'rgba(124,58,237,0.15)' }}>✅</div>
+          <div className="section-icon" aria-hidden="true" />
           <div className="section-title-group">
             <div className="section-title">Tasks &amp; Action Items</div>
             <div className="section-count">{tasks.length} item{tasks.length !== 1 ? 's' : ''}</div>
@@ -13,12 +13,9 @@ export default function TasksSection({ tasks }) {
         </div>
 
         {tasks.length === 0 ? (
-          <div className="empty-state">
-            <span className="empty-state-icon">📋</span>
-            No tasks identified
-          </div>
+          <div className="empty-state">No tasks identified</div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
+          <div className="table-scroll">
             <table className="data-table">
               <thead>
                 <tr>
@@ -33,35 +30,23 @@ export default function TasksSection({ tasks }) {
               <tbody>
                 {tasks.map(task => (
                   <tr key={task.id}>
-                    <td>
-                      <span className="badge badge-neutral font-mono text-xs">{task.id}</span>
-                    </td>
+                    <td><span className="badge badge-neutral font-mono text-xs">{task.id}</span></td>
                     <td>
                       <div className="task-title-cell">{task.title}</div>
-                      {task.source_quote && (
-                        <div className="source-quote">"{task.source_quote}"</div>
-                      )}
+                      {task.source_quote && <div className="source-quote">"{task.source_quote}"</div>}
                     </td>
                     <td>
                       {task.owner
-                        ? <span style={{ color: 'var(--text-primary)', fontWeight: 500, fontSize: '0.82rem' }}>{task.owner}</span>
-                        : <span className="text-muted text-xs">Unassigned</span>
-                      }
+                        ? <span className="table-strong">{task.owner}</span>
+                        : <span className="text-muted text-xs">Unassigned</span>}
                     </td>
-                    <td>
-                      <span className={`badge ${severityClass(task.priority)}`}>
-                        {task.priority}
-                      </span>
-                    </td>
+                    <td><span className={`badge ${severityClass(task.priority)}`}>{task.priority}</span></td>
                     <td>
                       {task.deadline
-                        ? <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{formatDate(task.deadline)}</span>
-                        : <span className="text-muted text-xs">—</span>
-                      }
+                        ? <span className="text-sm">{formatDate(task.deadline)}</span>
+                        : <span className="text-muted text-xs">None</span>}
                     </td>
-                    <td>
-                      <span className="badge badge-cyan">{task.status}</span>
-                    </td>
+                    <td><span className="badge badge-info">{task.status}</span></td>
                   </tr>
                 ))}
               </tbody>
