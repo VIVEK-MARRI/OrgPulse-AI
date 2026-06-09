@@ -4,16 +4,17 @@ import TranscriptInput from './components/TranscriptInput.jsx';
 import ResultsView from './components/ResultsView.jsx';
 
 export default function App() {
-  const { analyze, extraction, brief, status, error } = useAnalyze();
-  // Track apiKeyOverride at the App level so ResultsView can pass it to GraphQueryPanel
+  const { analyze, extraction, brief, recurring, status, error } = useAnalyze();
   const [apiKeyOverride, setApiKeyOverride] = useState('');
 
-  const isLoading = status === 'analyzing' || status === 'briefing';
+  const isLoading = ['analyzing', 'briefing', 'recurring'].includes(status);
 
-  const statusLabel = status === 'analyzing' ? 'Extracting data…'
-                    : status === 'briefing'  ? 'Generating brief…'
-                    : status === 'success'   ? 'Analysis complete'
-                    : null;
+  const statusLabel =
+    status === 'analyzing' ? 'Extracting data…'
+    : status === 'briefing'  ? 'Generating brief…'
+    : status === 'recurring' ? 'Scanning org memory…'
+    : status === 'success'   ? 'Analysis complete'
+    : null;
 
   return (
     <div className="app-wrapper">
@@ -34,8 +35,7 @@ export default function App() {
             }}>
               {status === 'success'
                 ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--color-low)', display: 'inline-block' }} />
-                : <span className="spinner" style={{ width: 13, height: 13 }} />
-              }
+                : <span className="spinner" style={{ width: 13, height: 13 }} />}
               {statusLabel}
             </span>
           )}
@@ -53,7 +53,6 @@ export default function App() {
 
       {/* ── Main layout ── */}
       <main className="app-main" role="main">
-        {/* Left: Transcript input */}
         <section className="input-panel" aria-label="Transcript input">
           <TranscriptInput
             onAnalyze={analyze}
@@ -64,12 +63,13 @@ export default function App() {
           />
         </section>
 
-        {/* Right: Results */}
         <section className="results-panel" aria-label="Analysis results">
           <ResultsView
             data={extraction}
             brief={brief}
             briefStatus={status}
+            recurring={recurring}
+            recurringStatus={status}
             apiKeyOverride={apiKeyOverride}
           />
         </section>

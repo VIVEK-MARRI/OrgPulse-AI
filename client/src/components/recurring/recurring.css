@@ -1,0 +1,310 @@
+/* ── Recurring Issue Intelligence Dashboard ────────────────────────── */
+
+.recurring-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+/* Top-level alert banner */
+.recurring-alert-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background: linear-gradient(135deg, rgba(244,63,94,0.12), rgba(239,68,68,0.06));
+  border: 1px solid rgba(244,63,94,0.35);
+  border-radius: var(--radius-md);
+  animation: pulse-border 2.5s ease-in-out infinite;
+}
+
+@keyframes pulse-border {
+  0%, 100% { border-color: rgba(244,63,94,0.35); box-shadow: 0 0 0 0 rgba(244,63,94,0); }
+  50%       { border-color: rgba(244,63,94,0.6);  box-shadow: 0 0 12px rgba(244,63,94,0.15); }
+}
+
+.recurring-alert-icon {
+  font-size: 1.4rem;
+  flex-shrink: 0;
+  animation: blink 1.8s ease-in-out infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+
+.recurring-alert-title {
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: var(--color-critical);
+  margin-bottom: 0.2rem;
+  letter-spacing: 0.01em;
+}
+
+.recurring-alert-subtitle {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* Individual recurring risk card */
+.recurring-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: border-color 200ms ease, box-shadow 200ms ease;
+  position: relative;
+}
+
+.recurring-card:hover {
+  border-color: var(--border-glow);
+  box-shadow: 0 4px 24px rgba(124,58,237,0.08);
+}
+
+/* Left severity stripe */
+.recurring-card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  background: var(--stripe-color, var(--color-medium));
+  border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+}
+
+.recurring-card[data-severity="CRITICAL"] { --stripe-color: var(--color-critical); }
+.recurring-card[data-severity="HIGH"]     { --stripe-color: var(--color-high); }
+.recurring-card[data-severity="MEDIUM"]   { --stripe-color: var(--color-medium); }
+.recurring-card[data-severity="LOW"]      { --stripe-color: var(--color-low); }
+
+/* Card header */
+.recurring-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1rem 1.1rem 0.75rem 1.4rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.recurring-card-title {
+  flex: 1;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.45;
+}
+
+.recurring-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* Occurrence pill */
+.occurrence-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.occurrence-high  { background: rgba(244,63,94,0.15); color: var(--color-critical); border: 1px solid rgba(244,63,94,0.3); }
+.occurrence-med   { background: rgba(234,179,8,0.12);  color: var(--color-medium);   border: 1px solid rgba(234,179,8,0.3); }
+.occurrence-low   { background: rgba(124,58,237,0.1);  color: var(--text-accent);    border: 1px solid var(--border-glow); }
+
+/* Trajectory badge */
+.trajectory-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 3px 9px;
+  border-radius: var(--radius-full);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.trajectory-WORSENING   { background: rgba(244,63,94,0.1);  color: var(--color-critical); border: 1px solid rgba(244,63,94,0.25); }
+.trajectory-STABLE      { background: rgba(234,179,8,0.1);  color: var(--color-medium);   border: 1px solid rgba(234,179,8,0.25); }
+.trajectory-IMPROVING   { background: rgba(34,197,94,0.1);  color: var(--color-low);      border: 1px solid rgba(34,197,94,0.25); }
+
+/* Card body */
+.recurring-card-body {
+  padding: 0.85rem 1.1rem 0.85rem 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* Timeline row */
+.timeline-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.timeline-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.days-open-badge {
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+}
+
+/* Meeting appearances */
+.meetings-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.meeting-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.68rem;
+  font-weight: 500;
+  background: rgba(124,58,237,0.08);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Root cause */
+.root-cause-row {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-style: italic;
+  line-height: 1.5;
+}
+
+/* Chips row (owners / projects) */
+.chips-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.chip-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-right: 0.15rem;
+}
+
+/* Recommended action */
+.recurring-action-box {
+  padding: 0.65rem 0.9rem;
+  background: rgba(34,197,94,0.06);
+  border: 1px solid rgba(34,197,94,0.2);
+  border-radius: var(--radius-sm);
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.recurring-action-label {
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-low);
+  margin-bottom: 3px;
+}
+
+.recurring-action-text {
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+/* Demo series instruction */
+.demo-series-hint {
+  padding: 1rem;
+  background: rgba(6,182,212,0.06);
+  border: 1px dashed rgba(6,182,212,0.25);
+  border-radius: var(--radius-md);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.demo-series-steps {
+  margin: 0.5rem 0 0;
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+/* Single-occurrence item (no AI analysis) */
+.single-occurrence-card {
+  background: var(--bg-glass);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.7rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+/* Memory stats bar */
+.memory-stats {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.memory-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.6rem 1rem;
+  background: var(--bg-glass);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  min-width: 80px;
+}
+
+.memory-stat-value {
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--text-accent);
+  line-height: 1;
+}
+
+.memory-stat-label {
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-top: 4px;
+  text-align: center;
+}

@@ -4,61 +4,79 @@ import { useState, useCallback } from 'react';
 const API_BASE = '';
 
 /**
- * Custom hook managing the two-stage OrgPulse AI pipeline:
- *   Stage 1: POST /api/analyze  → structured extraction JSON
- *   Stage 2: POST /api/brief    → executive briefing JSON (auto-chained)
+ * Five-stage OrgPulse AI pipeline:
+ *   Stage 1: POST /api/analyze          → structured extraction JSON
+ *   Stage 2: POST /api/brief            → executive briefing JSON
+ *   Stage 3: POST /api/recurring/analyze → recurring issue intelligence
  *
- * @returns {{ analyze, extraction, brief, status, briefStatus, error, reset }}
+ * status flow: idle → analyzing → briefing → recurring → success | error
  */
 export function useAnalyze() {
-  const [status, setStatus]           = useState('idle');  // 'idle' | 'analyzing' | 'briefing' | 'success' | 'error'
-  const [extraction, setExtraction]   = useState(null);
-  const [brief, setBrief]             = useState(null);
-  const [error, setError]             = useState(null);
+  const [status,     setStatus]     = useState('idle');
+  const [extraction, setExtraction] = useState(null);
+  const [brief,      setBrief]      = useState(null);
+  const [recurring,  setRecurring]  = useState(null);
+  const [error,      setError]      = useState(null);
 
-  const analyze = useCallback(async ({ transcript, meetingTitle, referenceDate, apiKeyOverride }) => {
+  const analyze = useCallback(async ({
+    transcript, meetingTitle, referenceDate, apiKeyOverride,
+  }) => {
     setStatus('analyzing');
     setExtraction(null);
     setBrief(null);
+    setRecurring(null);
     setError(null);
 
     try {
-      // ── Stage 1: Extract structured data ──────────────────────────────
-      const analyzeRes = await fetch(`${API_BASE}/api/analyze`, {
-        method: 'POST',
+      // ── Stage 1: Extract ──────────────────────────────────────────────────
+      const analyzeRes  = await fetch(`${API_BASE}/api/analyze`, {
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript, meetingTitle, referenceDate, apiKeyOverride }),
+        body:    JSON.stringify({ transcript, meetingTitle, referenceDate, apiKeyOverride }),
       });
-
       const analyzeJson = await analyzeRes.json();
 
-      if (!analyzeRes.ok) {
-        throw new Error(analyzeJson.message || `Server error: ${analyzeRes.status}`);
-      }
-      if (!analyzeJson.success || !analyzeJson.data) {
-        throw new Error('Unexpected response format from /api/analyze.');
-      }
+      if (!analyzeRes.ok)
+        throw new Error(analyzeJson.message || `Server error ${analyzeRes.status}`);
+      if (!analyzeJson.success || !analyzeJson.data)
+        throw new Error('Unexpected response from /api/analyze.');
 
       const extractionData = analyzeJson.data;
       setExtraction(extractionData);
 
-      // ── Stage 2: Generate executive briefing ──────────────────────────
+      // ── Stage 2: Executive Brief (non-fatal) ─────────────────────────────
       setStatus('briefing');
 
-      const briefRes = await fetch(`${API_BASE}/api/brief`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ extractionData, apiKeyOverride }),
-      });
+      try {
+        const briefRes  = await fetch(`${API_BASE}/api/brief`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ extractionData, apiKeyOverride }),
+        });
+        const briefJson = await briefRes.json();
+        if (briefRes.ok && briefJson.success && briefJson.data) {
+          setBrief(briefJson.data);
+        }
+      } catch (briefErr) {
+        console.warn('[OrgPulse] Brief stage failed (non-fatal):', briefErr.message);
+      }
 
-      const briefJson = await briefRes.json();
+      // ── Stage 3: Recurring Issue Intelligence (non-fatal) ─────────────────
+      setStatus('recurring');
 
-      if (!briefRes.ok) {
-        // Brief failure is non-fatal — we still show the extraction dashboard
-        console.warn('[OrgPulse] Executive brief failed:', briefJson.message);
-        setBrief(null);
-      } else if (briefJson.success && briefJson.data) {
-        setBrief(briefJson.data);
+      try {
+        const recurRes  = await fetch(`${API_BASE}/api/recurring/analyze`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ extractionData, apiKeyOverride }),
+        });
+        const recurJson = await recurRes.json();
+        if (recurRes.ok && recurJson.success) {
+          setRecurring(recurJson.recurringIssues || []);
+        }
+      } catch (recurErr) {
+        console.warn('[OrgPulse] Recurring stage failed (non-fatal):', recurErr.message);
+        setRecurring([]);
       }
 
       setStatus('success');
@@ -76,8 +94,9 @@ export function useAnalyze() {
     setStatus('idle');
     setExtraction(null);
     setBrief(null);
+    setRecurring(null);
     setError(null);
   }, []);
 
-  return { analyze, extraction, brief, status, error, reset };
+  return { analyze, extraction, brief, recurring, status, error, reset };
 }
