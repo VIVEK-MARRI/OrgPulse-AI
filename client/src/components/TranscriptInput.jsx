@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { SAMPLE_TRANSCRIPT, SAMPLE_MEETING_TITLE, SAMPLE_REFERENCE_DATE } from '../data/SampleTranscript.js';
 
-export default function TranscriptInput({ onAnalyze, isLoading, status, error }) {
+export default function TranscriptInput({ onAnalyze, isLoading, status, error, onApiKeyChange }) {
   const [transcript, setTranscript] = useState('');
   const [meetingTitle, setMeetingTitle] = useState('');
   const [referenceDate, setReferenceDate] = useState(
@@ -71,7 +71,10 @@ export default function TranscriptInput({ onAnalyze, isLoading, status, error })
                     className="form-input"
                     placeholder="AIza... (optional, overrides .env)"
                     value={apiKeyOverride}
-                    onChange={e => setApiKeyOverride(e.target.value)}
+                    onChange={e => {
+                      setApiKeyOverride(e.target.value);
+                      onApiKeyChange?.(e.target.value);
+                    }}
                     autoComplete="off"
                     spellCheck={false}
                   />

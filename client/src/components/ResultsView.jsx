@@ -8,17 +8,19 @@ import StakeholdersSection from './dashboard/StakeholdersSection.jsx';
 import DependenciesSection from './dashboard/DependenciesSection.jsx';
 import JsonViewer from './JsonViewer.jsx';
 import ExecutiveBrief from './brief/ExecutiveBrief.jsx';
+import GraphQueryPanel from './graph/GraphQueryPanel.jsx';
 
 const TABS = [
-  { id: 'brief',     label: '⚡ Brief',     requiresBrief: true },
+  { id: 'brief',     label: '⚡ Brief',     requiresBrief: true  },
   { id: 'dashboard', label: '📊 Dashboard', requiresBrief: false },
+  { id: 'graph',     label: '🔍 Graph',     requiresBrief: false },
   { id: 'json',      label: '{ } JSON',     requiresBrief: false },
 ];
 
-export default function ResultsView({ data, brief, briefStatus }) {
+export default function ResultsView({ data, brief, briefStatus, apiKeyOverride }) {
   const [activeTab, setActiveTab] = useState('dashboard');
 
-  // When brief arrives, auto-switch to it once
+  // Auto-switch to Brief tab when it first arrives
   const [briefSeen, setBriefSeen] = useState(false);
   if (brief && !briefSeen) {
     setBriefSeen(true);
@@ -32,7 +34,8 @@ export default function ResultsView({ data, brief, briefStatus }) {
         <div className="welcome-title">Paste a transcript to begin</div>
         <div className="welcome-subtitle">
           OrgPulse AI will extract tasks, escalations, risks, decisions,
-          stakeholders, and dependencies — then synthesize an executive briefing.
+          stakeholders, and dependencies — then synthesize an executive briefing
+          and generate a queryable knowledge graph.
         </div>
       </div>
     );
@@ -40,7 +43,7 @@ export default function ResultsView({ data, brief, briefStatus }) {
 
   return (
     <>
-      {/* Tab bar in the results panel header */}
+      {/* ── Tab bar ── */}
       <div className="results-panel-header">
         <div className="tab-bar" role="tablist" aria-label="Results view">
           {TABS.map(tab => {
@@ -53,13 +56,12 @@ export default function ResultsView({ data, brief, briefStatus }) {
                 role="tab"
                 aria-selected={activeTab === tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                title={tab.requiresBrief && !brief && !isBriefLoading ? 'Executive brief is being generated…' : undefined}
               >
                 {tab.label}
                 {isBriefLoading && (
                   <span className="spinner" style={{ width: 12, height: 12 }} />
                 )}
-                {tab.requiresBrief && brief && (
+                {tab.id === 'brief' && brief && (
                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--color-low)', flexShrink: 0 }} />
                 )}
               </button>
@@ -79,24 +81,30 @@ export default function ResultsView({ data, brief, briefStatus }) {
             <span className="badge badge-high">⚠️ {data.risks.length} risks</span>
           )}
           {brief && (
-            <span
-              className={`badge ${brief.org_health === 'CRITICAL' ? 'badge-critical' : brief.org_health === 'WARNING' ? 'badge-medium' : 'badge-low'}`}
-            >
+            <span className={`badge ${
+              brief.org_health === 'CRITICAL' ? 'badge-critical'
+              : brief.org_health === 'WARNING' ? 'badge-medium'
+              : 'badge-low'
+            }`}>
               🏥 {brief.org_health} ({brief.health_score})
             </span>
           )}
         </div>
       </div>
 
-      {/* Panel body */}
+      {/* ── Panel body ── */}
       <div className="results-panel-body" role="tabpanel" aria-labelledby={`tab-${activeTab}`}>
+
+        {/* ── Executive Brief ── */}
         {activeTab === 'brief' && (
           brief
             ? <ExecutiveBrief brief={brief} />
             : (
               <div className="welcome-state">
                 <div className="welcome-orb" style={{ fontSize: '1.5rem' }}>
-                  {briefStatus === 'briefing' ? <span className="spinner" style={{ width: 32, height: 32 }} /> : '⚡'}
+                  {briefStatus === 'briefing'
+                    ? <span className="spinner" style={{ width: 32, height: 32 }} />
+                    : '⚡'}
                 </div>
                 <div className="welcome-title">
                   {briefStatus === 'briefing' ? 'Generating executive brief…' : 'Executive brief unavailable'}
@@ -110,6 +118,7 @@ export default function ResultsView({ data, brief, briefStatus }) {
             )
         )}
 
+        {/* ── Dashboard ── */}
         {activeTab === 'dashboard' && (
           <>
             <MeetingHeader meeting={data.meeting} />
@@ -122,6 +131,15 @@ export default function ResultsView({ data, brief, briefStatus }) {
           </>
         )}
 
+        {/* ── Graph Query ── */}
+        {activeTab === 'graph' && (
+          <GraphQueryPanel
+            extraction={data}
+            apiKeyOverride={apiKeyOverride}
+          />
+        )}
+
+        {/* ── JSON ── */}
         {activeTab === 'json' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <JsonViewer data={data} />

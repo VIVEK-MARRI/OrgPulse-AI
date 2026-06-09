@@ -1,13 +1,15 @@
+import { useState } from 'react';
 import { useAnalyze } from './hooks/useAnalyze.js';
 import TranscriptInput from './components/TranscriptInput.jsx';
 import ResultsView from './components/ResultsView.jsx';
 
 export default function App() {
   const { analyze, extraction, brief, status, error } = useAnalyze();
+  // Track apiKeyOverride at the App level so ResultsView can pass it to GraphQueryPanel
+  const [apiKeyOverride, setApiKeyOverride] = useState('');
 
   const isLoading = status === 'analyzing' || status === 'briefing';
 
-  // Status label for the header
   const statusLabel = status === 'analyzing' ? 'Extracting data…'
                     : status === 'briefing'  ? 'Generating brief…'
                     : status === 'success'   ? 'Analysis complete'
@@ -58,6 +60,7 @@ export default function App() {
             isLoading={isLoading}
             status={status}
             error={error}
+            onApiKeyChange={setApiKeyOverride}
           />
         </section>
 
@@ -67,6 +70,7 @@ export default function App() {
             data={extraction}
             brief={brief}
             briefStatus={status}
+            apiKeyOverride={apiKeyOverride}
           />
         </section>
       </main>

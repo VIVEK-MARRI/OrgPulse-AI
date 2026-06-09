@@ -4,6 +4,8 @@ import cors from 'cors';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { buildPrompt } from './prompt.js';
 import { buildExecutivePrompt } from './executiveBriefPrompt.js';
+import { buildCypherPrompt, buildIngestStatements } from './cypherPrompt.js';
+import neo4j from 'neo4j-driver';
 
 /** Shared Gemini call helper — resolves API key, calls model, parses JSON */
 async function callGemini(apiKey, system, user) {
@@ -166,6 +168,169 @@ app.post('/api/brief', async (req, res) => {
   }
 });
 
+// ─── Cypher Query Generator ────────────────────────────────────────────────────
+app.post('/api/cypher', async (req, res) => {
+  const { question, apiKeyOverride } = req.body;
+
+  if (!question || typeof question !== 'string' || !question.trim()) {
+    return res.status(400).json({
+      error: 'MISSING_QUESTION',
+      message: 'The "question" field is required.',
+    });
+  }
+
+  const apiKey = (apiKeyOverride && apiKeyOverride.trim()) || process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    return res.status(401).json({
+      error: 'MISSING_API_KEY',
+      message: 'No Gemini API key found.',
+    });
+  }
+
+  const { system, user } = buildCypherPrompt(question.trim());
+
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.0-flash',
+      systemInstruction: system,
+      generationConfig: {
+        // Plain text — Cypher is not JSON
+        temperature: 0.05,
+        topP: 0.8,
+        maxOutputTokens: 2048,
+      },
+    });
+    const result = await model.generateContent(user);
+    let query = result.response.text().trim();
+
+    // Strip any accidental markdown fences the model may emit
+    query = query.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
+
+    // Safety: reject any write operations
+    const writePattern = /\b(CREATE|MERGE|DELETE|SET|REMOVE|DROP|CALL|LOAD\s+CSV)\b/i;
+    if (writePattern.test(query)) {
+      return res.status(400).json({
+        error: 'WRITE_OPERATION_BLOCKED',
+        message: 'Generated query contains a write operation and was rejected.',
+        query,
+      });
+    }
+
+    res.json({ success: true, query });
+  } catch (err) {
+    console.error('[OrgPulse/cypher] Error:', err.message);
+    return handleGeminiError(err, res);
+  }
+});
+
+// ─── Neo4j Query Executor ────────────────────────────────────────────────────
+app.post('/api/neo4j/run', async (req, res) => {
+  const {
+    query,
+    boltUrl = process.env.NEO4J_URL || 'bolt://localhost:7687',
+    username = process.env.NEO4J_USER || 'neo4j',
+    password = process.env.NEO4J_PASSWORD || '',
+  } = req.body;
+
+  if (!query || typeof query !== 'string') {
+    return res.status(400).json({ error: 'MISSING_QUERY', message: '"query" is required.' });
+  }
+
+  // Read-only guard
+  const writePattern = /\b(CREATE|MERGE|DELETE|SET|REMOVE|DROP|CALL|LOAD\s+CSV)\b/i;
+  if (writePattern.test(query)) {
+    return res.status(400).json({
+      error: 'WRITE_OPERATION_BLOCKED',
+      message: 'Only read-only queries are permitted through this endpoint.',
+    });
+  }
+
+  const driver = neo4j.driver(boltUrl, neo4j.auth.basic(username, password), {
+    connectionTimeoutMs: 5000,
+  });
+  const session = driver.session({ defaultAccessMode: neo4j.session.READ });
+
+  try {
+    const result = await session.run(query);
+
+    // Flatten Neo4j records into plain objects
+    const rows = result.records.map(record => {
+      const obj = {};
+      record.keys.forEach(key => {
+        const val = record.get(key);
+        // Convert Neo4j integers to JS numbers
+        obj[key] = neo4j.isInt(val) ? val.toNumber()
+                  : typeof val === 'object' && val !== null && val.properties ? val.properties
+                  : val;
+      });
+      return obj;
+    });
+
+    res.json({ success: true, rows, columns: result.records[0]?.keys || [] });
+  } catch (err) {
+    console.error('[OrgPulse/neo4j/run] Error:', err.message);
+    res.status(500).json({ error: 'NEO4J_ERROR', message: err.message });
+  } finally {
+    await session.close();
+    await driver.close();
+  }
+});
+
+// ─── Neo4j Knowledge Graph Ingest ───────────────────────────────────────────────
+app.post('/api/neo4j/ingest', async (req, res) => {
+  const {
+    extractionData,
+    meetingId,
+    boltUrl = process.env.NEO4J_URL || 'bolt://localhost:7687',
+    username = process.env.NEO4J_USER || 'neo4j',
+    password = process.env.NEO4J_PASSWORD || '',
+  } = req.body;
+
+  if (!extractionData || !meetingId) {
+    return res.status(400).json({
+      error: 'MISSING_FIELDS',
+      message: '"extractionData" and "meetingId" are required.',
+    });
+  }
+
+  const statements = buildIngestStatements(extractionData, meetingId);
+
+  const driver = neo4j.driver(boltUrl, neo4j.auth.basic(username, password), {
+    connectionTimeoutMs: 5000,
+  });
+  const session = driver.session({ defaultAccessMode: neo4j.session.WRITE });
+
+  const results = [];
+  let errors = 0;
+
+  try {
+    for (const stmt of statements) {
+      try {
+        await session.run(stmt);
+        results.push({ ok: true });
+      } catch (stmtErr) {
+        console.error('[OrgPulse/neo4j/ingest] Statement error:', stmtErr.message);
+        results.push({ ok: false, error: stmtErr.message, stmt: stmt.slice(0, 80) });
+        errors++;
+      }
+    }
+
+    res.json({
+      success: true,
+      statementsRun: statements.length,
+      errors,
+      results,
+    });
+  } catch (err) {
+    console.error('[OrgPulse/neo4j/ingest] Fatal error:', err.message);
+    res.status(500).json({ error: 'NEO4J_ERROR', message: err.message });
+  } finally {
+    await session.close();
+    await driver.close();
+  }
+});
+
 // ─── Shared Error Handler ────────────────────────────────────────────────────
 function handleGeminiError(err, res) {
   if (err.message?.includes('API_KEY_INVALID') || err.status === 400) {
@@ -186,5 +351,9 @@ app.listen(PORT, () => {
   console.log(`   Health:   http://localhost:${PORT}/api/health`);
   console.log(`   Analyze:  POST http://localhost:${PORT}/api/analyze`);
   console.log(`   Brief:    POST http://localhost:${PORT}/api/brief`);
-  console.log(`   Gemini key: ${process.env.GEMINI_API_KEY ? '✓ configured' : '✗ not set (use UI override)'}\n`);
+  console.log(`   Cypher:   POST http://localhost:${PORT}/api/cypher`);
+  console.log(`   Neo4j run:    POST http://localhost:${PORT}/api/neo4j/run`);
+  console.log(`   Neo4j ingest: POST http://localhost:${PORT}/api/neo4j/ingest`);
+  console.log(`   Gemini key: ${process.env.GEMINI_API_KEY ? '✓ configured' : '✗ not set (use UI override)'}`);
+  console.log(`   Neo4j:      ${process.env.NEO4J_URL || 'bolt://localhost:7687 (default)'}\n`);
 });
