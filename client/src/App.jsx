@@ -3,9 +3,15 @@ import TranscriptInput from './components/TranscriptInput.jsx';
 import ResultsView from './components/ResultsView.jsx';
 
 export default function App() {
-  const { analyze, result, status, error } = useAnalyze();
+  const { analyze, extraction, brief, status, error } = useAnalyze();
 
-  const isLoading = status === 'loading';
+  const isLoading = status === 'analyzing' || status === 'briefing';
+
+  // Status label for the header
+  const statusLabel = status === 'analyzing' ? 'Extracting data…'
+                    : status === 'briefing'  ? 'Generating brief…'
+                    : status === 'success'   ? 'Analysis complete'
+                    : null;
 
   return (
     <div className="app-wrapper">
@@ -18,16 +24,17 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-3">
-          {status === 'success' && (
-            <span style={{ fontSize: '0.78rem', color: 'var(--color-low)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--color-low)', display: 'inline-block' }} />
-              Analysis complete
-            </span>
-          )}
-          {isLoading && (
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span className="spinner" style={{ width: 13, height: 13 }} />
-              Processing…
+          {statusLabel && (
+            <span style={{
+              fontSize: '0.78rem',
+              color: status === 'success' ? 'var(--color-low)' : 'var(--text-muted)',
+              display: 'flex', alignItems: 'center', gap: '0.4rem',
+            }}>
+              {status === 'success'
+                ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--color-low)', display: 'inline-block' }} />
+                : <span className="spinner" style={{ width: 13, height: 13 }} />
+              }
+              {statusLabel}
             </span>
           )}
           <a
@@ -49,13 +56,18 @@ export default function App() {
           <TranscriptInput
             onAnalyze={analyze}
             isLoading={isLoading}
+            status={status}
             error={error}
           />
         </section>
 
         {/* Right: Results */}
         <section className="results-panel" aria-label="Analysis results">
-          <ResultsView data={result} />
+          <ResultsView
+            data={extraction}
+            brief={brief}
+            briefStatus={status}
+          />
         </section>
       </main>
     </div>

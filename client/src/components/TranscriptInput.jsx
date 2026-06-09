@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { SAMPLE_TRANSCRIPT, SAMPLE_MEETING_TITLE, SAMPLE_REFERENCE_DATE } from '../data/SampleTranscript.js';
 
-export default function TranscriptInput({ onAnalyze, isLoading, error }) {
+export default function TranscriptInput({ onAnalyze, isLoading, status, error }) {
   const [transcript, setTranscript] = useState('');
   const [meetingTitle, setMeetingTitle] = useState('');
   const [referenceDate, setReferenceDate] = useState(
@@ -165,7 +165,7 @@ export default function TranscriptInput({ onAnalyze, isLoading, error }) {
           {isLoading ? (
             <>
               <span className="spinner" aria-hidden="true" />
-              Analyzing…
+              {status === 'briefing' ? 'Generating brief…' : 'Extracting…'}
             </>
           ) : (
             <>

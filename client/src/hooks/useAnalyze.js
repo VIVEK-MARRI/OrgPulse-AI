@@ -4,40 +4,65 @@ import { useState, useCallback } from 'react';
 const API_BASE = '';
 
 /**
- * Custom hook for calling the OrgPulse AI analysis endpoint.
- * @returns {{ analyze, result, status, error, reset }}
+ * Custom hook managing the two-stage OrgPulse AI pipeline:
+ *   Stage 1: POST /api/analyze  → structured extraction JSON
+ *   Stage 2: POST /api/brief    → executive briefing JSON (auto-chained)
+ *
+ * @returns {{ analyze, extraction, brief, status, briefStatus, error, reset }}
  */
 export function useAnalyze() {
-  const [status, setStatus] = useState('idle'); // 'idle' | 'loading' | 'success' | 'error'
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState(null);
+  const [status, setStatus]           = useState('idle');  // 'idle' | 'analyzing' | 'briefing' | 'success' | 'error'
+  const [extraction, setExtraction]   = useState(null);
+  const [brief, setBrief]             = useState(null);
+  const [error, setError]             = useState(null);
 
   const analyze = useCallback(async ({ transcript, meetingTitle, referenceDate, apiKeyOverride }) => {
-    setStatus('loading');
-    setResult(null);
+    setStatus('analyzing');
+    setExtraction(null);
+    setBrief(null);
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE}/api/analyze`, {
+      // ── Stage 1: Extract structured data ──────────────────────────────
+      const analyzeRes = await fetch(`${API_BASE}/api/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ transcript, meetingTitle, referenceDate, apiKeyOverride }),
       });
 
-      const json = await response.json();
+      const analyzeJson = await analyzeRes.json();
 
-      if (!response.ok) {
-        throw new Error(json.message || `Server error: ${response.status}`);
+      if (!analyzeRes.ok) {
+        throw new Error(analyzeJson.message || `Server error: ${analyzeRes.status}`);
+      }
+      if (!analyzeJson.success || !analyzeJson.data) {
+        throw new Error('Unexpected response format from /api/analyze.');
       }
 
-      if (!json.success || !json.data) {
-        throw new Error('Unexpected response format from server.');
+      const extractionData = analyzeJson.data;
+      setExtraction(extractionData);
+
+      // ── Stage 2: Generate executive briefing ──────────────────────────
+      setStatus('briefing');
+
+      const briefRes = await fetch(`${API_BASE}/api/brief`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ extractionData, apiKeyOverride }),
+      });
+
+      const briefJson = await briefRes.json();
+
+      if (!briefRes.ok) {
+        // Brief failure is non-fatal — we still show the extraction dashboard
+        console.warn('[OrgPulse] Executive brief failed:', briefJson.message);
+        setBrief(null);
+      } else if (briefJson.success && briefJson.data) {
+        setBrief(briefJson.data);
       }
 
-      setResult(json.data);
       setStatus('success');
     } catch (err) {
-      // Distinguish network errors (server not running) from API errors
       if (err instanceof TypeError && err.message.includes('fetch')) {
         setError('Cannot connect to the OrgPulse server. Make sure it is running on port 3001.');
       } else {
@@ -49,9 +74,10 @@ export function useAnalyze() {
 
   const reset = useCallback(() => {
     setStatus('idle');
-    setResult(null);
+    setExtraction(null);
+    setBrief(null);
     setError(null);
   }, []);
 
-  return { analyze, result, status, error, reset };
+  return { analyze, extraction, brief, status, error, reset };
 }
