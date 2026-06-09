@@ -1,7 +1,13 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+dotenv.config({ path: join(__dirname, '.env') });
+
 import express from 'express';
 import cors from 'cors';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { buildPrompt }          from './prompt.js';
 import { buildExecutivePrompt } from './executiveBriefPrompt.js';
 import { buildCypherPrompt, buildIngestStatements } from './cypherPrompt.js';
@@ -26,11 +32,11 @@ app.use(cors({
 
 // ─── Helper: resolve & validate API key ───────────────────────────────────────
 function resolveKey(override, res) {
-  const key = (override && override.trim()) || process.env.GEMINI_API_KEY;
+  const key = (override && override.trim()) || process.env.GEMINI_API_KEY || process.env.OPENROUTER_API_KEY;
   if (!key) {
     res.status(401).json({
       error: 'MISSING_API_KEY',
-      message: 'No Gemini API key found. Set GEMINI_API_KEY in .env or provide apiKeyOverride.',
+      message: 'No API key found. Set GEMINI_API_KEY or OPENROUTER_API_KEY in .env or provide apiKeyOverride.',
     });
     return null;
   }
@@ -38,17 +44,58 @@ function resolveKey(override, res) {
 }
 
 // ─── Health Check ─────────────────────────────────────────────────────────────
-app.get('/api/health', (_req, res) => {
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    geminiKeyConfigured: !!process.env.GEMINI_API_KEY,
-  });
+app.get('/api/health', async (_req, res) => {
+  const started = Date.now();
+
+  const diagnostics = {
+    server: { status: 'ok' },
+    ai: { available: false, configured: !!process.env.GEMINI_API_KEY || !!process.env.OPENROUTER_API_KEY },
+    neo4j: { available: false },
+    chroma: { available: false },
+    durationMs: 0,
+  };
+
+  // OpenRouter: if API key is configured we consider it "available".
+  // (Avoid making calls that would require a keyless environment.)
+  if (process.env.GEMINI_API_KEY || process.env.OPENROUTER_API_KEY) diagnostics.ai.available = true;
+
+  // Neo4j: lightweight connectivity test
+  try {
+    const boltUrl = process.env.NEO4J_URL || 'bolt://localhost:7687';
+    const username = process.env.NEO4J_USER || 'neo4j';
+    const password = process.env.NEO4J_PASSWORD || '';
+
+    const driver = neo4j.driver(boltUrl, neo4j.auth.basic(username, password));
+    const session = driver.session({ defaultAccessMode: neo4j.session.READ });
+    try {
+      await session.run('RETURN 1 AS ok LIMIT 1');
+      diagnostics.neo4j.available = true;
+    } finally {
+      await session.close();
+      await driver.close();
+    }
+  } catch {
+    diagnostics.neo4j.available = false;
+  }
+
+  // Chroma/Memory: ensure module can be imported
+  try {
+    await import('./services/chroma.service.js');
+    diagnostics.chroma.available = true;
+  } catch {
+    diagnostics.chroma.available = false;
+  }
+
+  diagnostics.durationMs = Date.now() - started;
+  res.json({ success: true, diagnostics });
 });
+
 
 // ─── Analyze ──────────────────────────────────────────────────────────────────
 app.post('/api/analyze', async (req, res) => {
+  const started = Date.now();
   const { transcript, meetingTitle, referenceDate, apiKeyOverride } = req.body;
+
 
   if (!transcript || typeof transcript !== 'string' || !transcript.trim()) {
     return res.status(400).json({
@@ -64,31 +111,29 @@ app.post('/api/analyze', async (req, res) => {
   const { system, user } = buildPrompt(transcript.trim(), meetingTitle, today);
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-2.0-flash',
-      systemInstruction: system,
-      generationConfig: { responseMimeType: 'application/json', temperature: 0.1, topP: 0.8, maxOutputTokens: 8192 },
-    });
-    const result = await model.generateContent(user);
-    let parsed;
-    try   { parsed = JSON.parse(result.response.text()); }
-    catch { return res.status(502).json({ error: 'INVALID_JSON_RESPONSE', message: 'Gemini returned an unparseable response.' }); }
+    const parsed = await callGemini(apiKey, system, user);
 
     const required = ['meeting', 'tasks', 'escalations', 'risks', 'decisions', 'stakeholders', 'dependencies'];
     const missing  = required.filter(k => !(k in parsed));
     if (missing.length) return res.status(502).json({ error: 'INCOMPLETE_RESPONSE', message: `Missing keys: ${missing.join(', ')}`, partial: parsed });
 
-    res.json({ success: true, data: parsed });
+    res.json({
+      success: true,
+      data: parsed,
+      durationMs: Date.now() - started,
+    });
   } catch (err) {
     console.error('[analyze]', err.message);
     handleGeminiError(err, res);
   }
 });
 
+
 // ─── Executive Brief ──────────────────────────────────────────────────────────
 app.post('/api/brief', async (req, res) => {
+  const started = Date.now();
   const { extractionData, apiKeyOverride } = req.body;
+
   if (!extractionData) return res.status(400).json({ error: 'MISSING_EXTRACTION_DATA' });
 
   const apiKey = resolveKey(apiKeyOverride, res);
@@ -104,9 +149,14 @@ app.post('/api/brief', async (req, res) => {
     const missing = required.filter(k => !(k in parsed));
     if (missing.length) return res.status(502).json({ error: 'INCOMPLETE_RESPONSE', message: `Missing: ${missing.join(', ')}`, partial: parsed });
 
-    res.json({ success: true, data: parsed });
+    res.json({
+      success: true,
+      data: parsed,
+      durationMs: Date.now() - started,
+    });
   } catch (err) { console.error('[brief]', err.message); handleGeminiError(err, res); }
 });
+
 
 // ─── Cypher Query Generator ───────────────────────────────────────────────────
 app.post('/api/cypher', async (req, res) => {
@@ -180,7 +230,9 @@ app.post('/api/neo4j/ingest', async (req, res) => {
 
 // ─── Executive Insight ────────────────────────────────────────────────────────
 app.post('/api/insight', async (req, res) => {
+  const started = Date.now();
   const { question, cypher, results, apiKeyOverride } = req.body;
+
   if (!question || !cypher) return res.status(400).json({ error: 'MISSING_FIELDS' });
 
   const apiKey = resolveKey(apiKeyOverride, res);
@@ -197,13 +249,20 @@ app.post('/api/insight', async (req, res) => {
     if (!['HIGH','MEDIUM','LOW'].includes(parsed.confidence)) parsed.confidence = 'MEDIUM';
     if (!Array.isArray(parsed.evidence)) parsed.evidence = [];
 
-    res.json({ success: true, data: parsed });
+    res.json({
+      success: true,
+      data: parsed,
+      durationMs: Date.now() - started,
+    });
   } catch (err) { console.error('[insight]', err.message); handleGeminiError(err, res); }
 });
 
+
 // ─── Recurring Issue Analysis ─────────────────────────────────────────────────
 app.post('/api/recurring/analyze', async (req, res) => {
+  const started = Date.now();
   const { extractionData, apiKeyOverride } = req.body;
+
 
   if (!extractionData || typeof extractionData !== 'object') {
     return res.status(400).json({
@@ -216,13 +275,23 @@ app.post('/api/recurring/analyze', async (req, res) => {
   if (!apiKey) return;
 
   try {
-    const recurringIssues = await analyzeForRecurring(extractionData, apiKey);
-    res.json({ success: true, recurringIssues });
+    const result = await analyzeForRecurring(extractionData, apiKey);
+    const recurringIssues = Array.isArray(result) ? result : (result?.clusters || []);
+    const stageErrors = Array.isArray(result) ? [] : (result?.stageErrors || []);
+
+    res.json({
+      success: true,
+      recurringIssues,
+      stageErrors,
+      durationMs: Date.now() - started,
+    });
   } catch (err) {
     console.error('[recurring/analyze]', err.message);
     handleGeminiError(err, res);
   }
 });
+
+
 
 // ─── Get All Recurring Issues ─────────────────────────────────────────────────
 app.get('/api/recurring', async (_req, res) => {
@@ -247,14 +316,58 @@ app.delete('/api/recurring', async (_req, res) => {
 
 // ─── Shared Error Handler ─────────────────────────────────────────────────────
 function handleGeminiError(err, res) {
-  if (err.message?.includes('API_KEY_INVALID') || err.status === 400)
-    return res.status(401).json({ error: 'INVALID_API_KEY', message: 'The provided Gemini API key is invalid.' });
-  if (err.message?.includes('quota') || err.status === 429)
-    return res.status(429).json({ error: 'QUOTA_EXCEEDED', message: 'Gemini API quota exceeded.' });
+  const status = err?.status || 500;
+  const code = err?.code;
+
+  if (code === 'UNAUTHORIZED' || err?.message?.includes('API_KEY_INVALID') || status === 400 || code === 'FORBIDDEN')
+    return res.status(401).json({
+      error: 'INVALID_API_KEY',
+      message: 'The provided API key is invalid.',
+    });
+
+  if (code === 'RATE_LIMITED' || status === 429 || err?.message?.toLowerCase?.().includes('rate'))
+    return res.status(429).json({
+      error: 'QUOTA_EXCEEDED',
+      message: 'API rate limit exceeded. Please retry shortly.',
+    });
+
+  if (code === 'INVALID_JSON' || code === 'INVALID_EMBEDDING' || status === 502)
+    return res.status(502).json({
+      error: code || 'UPSTREAM_INVALID_RESPONSE',
+      message: err?.message || 'OpenRouter returned an invalid response.',
+    });
+
   if (err instanceof SyntaxError)
-    return res.status(502).json({ error: 'INVALID_JSON_RESPONSE', message: 'Gemini returned an unparseable response.' });
-  return res.status(500).json({ error: 'INTERNAL_ERROR', message: err.message || 'An unexpected error occurred.' });
+    return res.status(502).json({
+      error: 'INVALID_JSON_RESPONSE',
+      message: 'OpenRouter returned an unparseable response.',
+    });
+
+  return res.status(status).json({
+    error: 'INTERNAL_ERROR',
+    message: err?.message || 'An unexpected error occurred.',
+  });
 }
+
+// ─── Global Error Handler ─────────────────────────────────────────────────────
+app.use((err, _req, res, _next) => {
+  console.error('[global_error]', err);
+  const status = err?.status || 500;
+  res.status(status).json({
+    success: false,
+    error: 'INTERNAL_ERROR',
+    message: err?.message || 'Unexpected server error',
+  });
+});
+
+// ─── Process-level guards (never terminate on API failures) ──────────────────
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+
 
 // ─── Start Server ─────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
@@ -267,6 +380,6 @@ app.listen(PORT, () => {
   console.log(`   /api/recurring            GET   — Org Memory`);
   console.log(`   /api/recurring            DELETE— Reset Memory`);
   console.log(`   /api/neo4j/run|ingest     POST  — Knowledge Graph`);
-  console.log(`   Gemini: ${process.env.GEMINI_API_KEY ? '✓' : '✗ (use UI override)'}`);
+  console.log(`   AI Provider: ${process.env.GEMINI_API_KEY ? 'Gemini Direct ✓' : process.env.OPENROUTER_API_KEY ? 'OpenRouter ✓' : '✗ (use UI override)'}`);
   console.log(`   Neo4j:  ${process.env.NEO4J_URL || 'bolt://localhost:7687 (default)'}\n`);
 });
